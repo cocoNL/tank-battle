@@ -446,7 +446,17 @@ function loadLevel() {
   enemies = [];
   bullets = [];
   explosions = [];
-  player = new Tank(Math.floor(COLS / 2 - 1) * CELL, (ROWS - 2) * CELL, DIR.UP, '#4c4', true);
+  const spawnCol = Math.floor(COLS / 2 - 1);
+  const spawnRow = ROWS - 4;
+  // Clear bricks around player spawn
+  for (let r = spawnRow - 1; r <= spawnRow + 1; r++) {
+    for (let c = spawnCol - 1; c <= spawnCol + 2; c++) {
+      if (r >= 0 && r < ROWS && c >= 0 && c < COLS && grid[r][c] === TILE.BRICK) {
+        grid[r][c] = TILE.EMPTY;
+      }
+    }
+  }
+  player = new Tank(spawnCol * CELL, spawnRow * CELL, DIR.UP, '#4c4', true);
   enemiesRemaining = LEVELS[Math.min(level, LEVELS.length - 1)].enemies;
   enemiesSpawned = 0;
   spawnTimer = 0;
