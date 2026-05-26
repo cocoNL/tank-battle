@@ -607,8 +607,17 @@ function update() {
           return;
         }
         // Respawn
-        player.x = Math.floor(COLS / 2 - 1) * CELL;
-        player.y = (ROWS - 2) * CELL;
+        const sr = ROWS - 4;
+        const sc = Math.floor(COLS / 2 - 1);
+        for (let r = sr - 1; r <= sr + 1; r++) {
+          for (let c = sc - 1; c <= sc + 2; c++) {
+            if (r >= 0 && r < ROWS && c >= 0 && c < COLS && grid[r][c] === TILE.BRICK) {
+              grid[r][c] = TILE.EMPTY;
+            }
+          }
+        }
+        player.x = sc * CELL;
+        player.y = sr * CELL;
         player.dir = DIR.UP;
         player.flash = 120;
         updateUI();
