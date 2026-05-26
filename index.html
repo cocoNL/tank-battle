@@ -156,6 +156,7 @@ let enemyShootCounter = 0;
 const PLAYER_SHOOT_DELAY = 12;
 const PLAYER_SPEED = 2;
 const ENEMY_SPEED = 1;
+let enemyMoveSkip = 0;
 const BULLET_SPEED_PLAYER = 5;
 const BULLET_SPEED_ENEMY = 3;
 
@@ -377,12 +378,20 @@ function createGrid(levelIndex) {
       else if (ch === 'S') g[r][c] = TILE.STEEL;
     }
   }
-  // Base bottom center
+  // Base bottom center with protective bricks
   const bc = Math.floor(COLS / 2);
   g[ROWS - 1][bc] = TILE.BASE;
   g[ROWS - 1][bc - 1] = TILE.BASE;
   g[ROWS - 2][bc] = TILE.BASE;
   g[ROWS - 2][bc - 1] = TILE.BASE;
+  // Brick wall around base
+  for (let c = bc - 2; c <= bc + 1; c++) {
+    if (g[ROWS - 3][c] === TILE.EMPTY) g[ROWS - 3][c] = TILE.BRICK;
+  }
+  g[ROWS - 2][bc - 2] = TILE.BRICK;
+  g[ROWS - 2][bc + 1] = TILE.BRICK;
+  g[ROWS - 1][bc - 2] = TILE.BRICK;
+  g[ROWS - 1][bc + 1] = TILE.BRICK;
   return g;
 }
 
@@ -532,6 +541,7 @@ function update() {
 
   // ---- Enemy AI ----
   enemyShootCounter++;
+  enemyMoveSkip++;
   for (const e of enemies) {
     if (!e.alive) continue;
     // Direction change
@@ -547,9 +557,11 @@ function update() {
       }
       e.aiTimer = 25 + Math.floor(Math.random() * 50);
     }
-    // Move
-    const all = [player, ...enemies].filter(t => t.alive);
-    e.move([0, 1, 0, -1][e.dir], [-1, 0, 1, 0][e.dir], grid, all);
+    // Move (every other frame for half speed)
+    if (enemyMoveSkip % 2 === 0) {
+      const all = [player, ...enemies].filter(t => t.alive);
+      e.move([0, 1, 0, -1][e.dir], [-1, 0, 1, 0][e.dir], grid, all);
+    }
     // Shoot randomly
     if (enemyShootCounter % 3 === 0 && Math.random() < 0.03) {
       e.fire();
@@ -591,8 +603,15 @@ function update() {
         grid[tr][tc] = TILE.EMPTY;
         b.dead = true;
         spawnExplosion(b.x, b.y, true);
-        endGame(false);
-        return;
+        // Only game over when ALL base tiles destroyed
+        let basesLeft = 0;
+        for (let r = 0; r < ROWS; r++)
+          for (let c = 0; c < COLS; c++)
+            if (grid[r][c] === TILE.BASE) basesLeft++;
+        if (basesLeft <= 0) {
+          endGame(false);
+          return;
+        }
       }
     }
     // Hit player tank
