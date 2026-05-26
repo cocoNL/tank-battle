@@ -157,6 +157,8 @@ const PLAYER_SHOOT_DELAY = 12;
 const PLAYER_SPEED = 2;
 const ENEMY_SPEED = 1;
 let enemyMoveSkip = 0;
+// Level 1: half speed, Level 2: 2/3 speed, Level 3: full speed
+let enemySpeedPattern = [true, false];
 const BULLET_SPEED_PLAYER = 5;
 const BULLET_SPEED_ENEMY = 3;
 
@@ -455,16 +457,20 @@ function loadLevel() {
   bullets = [];
   explosions = [];
   const spawnCol = Math.floor(COLS / 2 - 1);
-  const spawnRow = ROWS - 4;
-  // Clear bricks around player spawn
-  for (let r = spawnRow - 1; r <= spawnRow + 1; r++) {
-    for (let c = spawnCol - 1; c <= spawnCol + 2; c++) {
+  const spawnRow = ROWS - 6;
+  // Clear bricks tightly around player spawn (not reaching base wall)
+  for (let r = spawnRow; r <= spawnRow + 1; r++) {
+    for (let c = spawnCol - 1; c <= spawnCol + 1; c++) {
       if (r >= 0 && r < ROWS && c >= 0 && c < COLS && grid[r][c] === TILE.BRICK) {
         grid[r][c] = TILE.EMPTY;
       }
     }
   }
   player = new Tank(spawnCol * CELL, spawnRow * CELL, DIR.UP, '#4c4', true);
+  // Enemy speed scales with level
+  if (level === 0) enemySpeedPattern = [true, false];
+  else if (level === 1) enemySpeedPattern = [true, true, false];
+  else enemySpeedPattern = [true];
   enemiesTotal = LEVELS[Math.min(level, LEVELS.length - 1)].enemies;
   enemiesSpawned = 0;
   enemiesKilled = 0;
@@ -557,8 +563,8 @@ function update() {
       }
       e.aiTimer = 25 + Math.floor(Math.random() * 50);
     }
-    // Move (every other frame for half speed)
-    if (enemyMoveSkip % 2 === 0) {
+    // Move (speed scales with level via pattern)
+    if (enemySpeedPattern[enemyMoveSkip % enemySpeedPattern.length]) {
       const all = [player, ...enemies].filter(t => t.alive);
       e.move([0, 1, 0, -1][e.dir], [-1, 0, 1, 0][e.dir], grid, all);
     }
@@ -626,10 +632,10 @@ function update() {
           return;
         }
         // Respawn
-        const sr = ROWS - 4;
+        const sr = ROWS - 6;
         const sc = Math.floor(COLS / 2 - 1);
-        for (let r = sr - 1; r <= sr + 1; r++) {
-          for (let c = sc - 1; c <= sc + 2; c++) {
+        for (let r = sr; r <= sr + 1; r++) {
+          for (let c = sc - 1; c <= sc + 1; c++) {
             if (r >= 0 && r < ROWS && c >= 0 && c < COLS && grid[r][c] === TILE.BRICK) {
               grid[r][c] = TILE.EMPTY;
             }
