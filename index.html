@@ -77,6 +77,28 @@ canvas { display: block; background: #111; }
 .btn:hover { background: #0c0; }
 #game-over-screen { display: none; }
 .hidden { display: none !important; }
+#pause-overlay {
+  position: absolute;
+  inset: 0;
+  display: none;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  background: rgba(0,0,0,0.75);
+  color: #fff;
+  z-index: 25;
+  pointer-events: none;
+}
+#pause-overlay h2 {
+  font-size: 42px;
+  color: #ff0;
+  margin-bottom: 12px;
+  text-shadow: 0 0 20px #ff0;
+}
+#pause-overlay p {
+  font-size: 16px;
+  color: #ccc;
+}
 #level-indicator {
   position: absolute;
   top: 38%;
@@ -104,6 +126,10 @@ canvas { display: block; background: #111; }
     <div>用时 <span id="time-display">00:00</span></div>
   </div>
   <div id="level-indicator"></div>
+  <div id="pause-overlay">
+    <h2>暂 停</h2>
+    <p>按 空格键 继续</p>
+  </div>
   <div id="start-screen">
     <h1>坦 克 大 战</h1>
     <p style="font-size:18px;color:#aaa;">BATTLE CITY</p>
@@ -168,6 +194,10 @@ const HEART_FLASH = 3000;   // flash during last 3s
 // Timer
 let gameStartTime = 0;
 let bestTime = null;        // best completion time in seconds (from localStorage)
+let totalPausedMs = 0;      // accumulated pause duration
+let pauseStartTime = 0;     // when current pause began
+let cheatBuffer = '';       // keystroke buffer for cheat detection
+let cheatUsed = false;      // true if cheat was activated this game
 
 const PLAYER_SHOOT_DELAY = 12;
 const PLAYER_SPEED = 2;
@@ -439,13 +469,20 @@ function formatTime(seconds) {
   return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
 }
 
+function gameNow() {
+  const raw = Date.now();
+  let now = raw - totalPausedMs;
+  if (gamePaused) now -= (raw - pauseStartTime);
+  return now;
+}
+
 function updateUI() {
   document.getElementById('lives').textContent = lives;
   document.getElementById('score').textContent = score;
   document.getElementById('level').textContent = level + 1;
   document.getElementById('enemies-left').textContent = enemiesTotal - enemiesKilled;
   if (gameStartTime > 0) {
-    const elapsed = (Date.now() - gameStartTime) / 1000;
+    const elapsed = (gameNow() - gameStartTime) / 1000;
     document.getElementById('time-display').textContent = formatTime(elapsed);
   }
 }
@@ -516,7 +553,12 @@ function startGame() {
   lives = 3;
   score = 0;
   gameRunning = true;
+  gamePaused = false;
+  cheatUsed = false;
+  cheatBuffer = '';
+  totalPausedMs = 0;
   gameStartTime = Date.now();
+  document.getElementById('pause-overlay').style.display = 'none';
   // Load best time from localStorage
   const saved = localStorage.getItem('tankBattleBestTime');
   bestTime = saved ? parseFloat(saved) : null;
@@ -525,9 +567,10 @@ function startGame() {
 
 function endGame(won) {
   gameRunning = false;
-  const totalTime = (Date.now() - gameStartTime) / 1000;
-  // Update best time if won
-  if (won && (bestTime === null || totalTime < bestTime)) {
+  gamePaused = false; // ensure no pause offset leaks
+  const totalTime = (gameNow() - gameStartTime) / 1000;
+  // Update best time if won and not cheated
+  if (won && !cheatUsed && (bestTime === null || totalTime < bestTime)) {
     bestTime = totalTime;
     localStorage.setItem('tankBattleBestTime', bestTime);
   }
@@ -558,6 +601,7 @@ function nextLevel() {
 // ----- Update logic -----
 function update() {
   if (!gameRunning) return;
+  if (gamePaused) { updateUI(); return; }
 
   // ---- Player ----
   if (player && player.alive) {
@@ -714,7 +758,7 @@ function update() {
   explosions = explosions.filter(p => p.life > 0);
 
   // ---- Heart / healing ----
-  const now = Date.now();
+  const now = gameNow();
   if (player && player.alive && lives < 3) {
     if (!heart) {
       if (nextHeartTime === 0) nextHeartTime = now + HEART_DELAY;
@@ -854,7 +898,7 @@ function drawExplosions() {
 
 function drawHeart() {
   if (!heart) return;
-  const now = Date.now();
+  const now = gameNow();
   const elapsed = now - heart.spawnTime;
   const remaining = HEART_DURATION - elapsed;
   // Flash during last 3 seconds (toggle every 200ms)
@@ -895,6 +939,41 @@ function gameLoop() {
 
 // ----- Input -----
 document.addEventListener('keydown', e => {
+  // Pause / resume
+  if (e.code === 'Escape' && gameRunning) {
+    e.preventDefault();
+    if (!gamePaused) {
+      gamePaused = true;
+      pauseStartTime = Date.now();
+      document.getElementById('pause-overlay').style.display = 'flex';
+    }
+    return;
+  }
+  if (e.code === 'Space' && gameRunning && gamePaused) {
+    e.preventDefault();
+    gamePaused = false;
+    totalPausedMs += Date.now() - pauseStartTime;
+    document.getElementById('pause-overlay').style.display = 'none';
+    return;
+  }
+  if (gamePaused) return;
+
+  // Cheat detection
+  if (e.key && e.key.length === 1 && /[a-zA-Z]/.test(e.key)) {
+    cheatBuffer = (cheatBuffer + e.key.toLowerCase()).slice(-5);
+    if (cheatBuffer === 'cheat') {
+      cheatBuffer = '';
+      cheatUsed = true;
+      if (level >= LEVELS.length - 1) {
+        endGame(true);
+      } else {
+        level++;
+        loadLevel();
+      }
+      return;
+    }
+  }
+
   keys[e.code] = true;
   if (['Space', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyJ',
        'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) {
