@@ -101,6 +101,7 @@ canvas { display: block; background: #111; }
     <div>分数 <span id="score">0</span></div>
     <div>关卡 <span id="level">1</span></div>
     <div>剩余 <span id="enemies-left">0</span></div>
+    <div>用时 <span id="time-display">00:00</span></div>
   </div>
   <div id="level-indicator"></div>
   <div id="start-screen">
@@ -115,6 +116,10 @@ canvas { display: block; background: #111; }
   <div id="game-over-screen">
     <h1 id="go-title">GAME OVER</h1>
     <p style="font-size:20px;color:#fff;">最终分数: <span id="final-score" style="color:#0f0;">0</span></p>
+    <p style="font-size:16px;color:#aaa;margin-top:8px;">
+      用时: <span id="final-time" style="color:#fff;">00:00</span>
+      &nbsp;|&nbsp; 最佳: <span id="best-time" style="color:#ff0;">--:--</span>
+    </p>
     <button class="btn" id="restart-btn">再来一局</button>
   </div>
 </div>
@@ -152,6 +157,17 @@ let keys = {};
 let spawnTimer = 0;
 let spawnDelay = 90;
 let enemyShootCounter = 0;
+
+// Heart / healing mechanic
+let heart = null;           // { x, y, spawnTime }
+let nextHeartTime = 0;      // timestamp when next heart may spawn
+const HEART_DELAY = 15000;  // 15s between hearts
+const HEART_DURATION = 10000; // 10s lifetime
+const HEART_FLASH = 3000;   // flash during last 3s
+
+// Timer
+let gameStartTime = 0;
+let bestTime = null;        // best completion time in seconds (from localStorage)
 
 const PLAYER_SHOOT_DELAY = 12;
 const PLAYER_SPEED = 2;
@@ -417,11 +433,21 @@ function showIndicator(text) {
   setTimeout(() => { el.style.opacity = '0'; }, 1800);
 }
 
+function formatTime(seconds) {
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+}
+
 function updateUI() {
   document.getElementById('lives').textContent = lives;
   document.getElementById('score').textContent = score;
   document.getElementById('level').textContent = level + 1;
   document.getElementById('enemies-left').textContent = enemiesTotal - enemiesKilled;
+  if (gameStartTime > 0) {
+    const elapsed = (Date.now() - gameStartTime) / 1000;
+    document.getElementById('time-display').textContent = formatTime(elapsed);
+  }
 }
 
 // ----- Spawn -----
@@ -476,6 +502,9 @@ function loadLevel() {
   enemiesKilled = 0;
   spawnTimer = 0;
   maxActiveEnemies = 4;
+  // Reset heart
+  heart = null;
+  nextHeartTime = 0;
   showIndicator(LEVELS[Math.min(level, LEVELS.length - 1)].name);
   updateUI();
 }
@@ -487,11 +516,21 @@ function startGame() {
   lives = 3;
   score = 0;
   gameRunning = true;
+  gameStartTime = Date.now();
+  // Load best time from localStorage
+  const saved = localStorage.getItem('tankBattleBestTime');
+  bestTime = saved ? parseFloat(saved) : null;
   loadLevel();
 }
 
 function endGame(won) {
   gameRunning = false;
+  const totalTime = (Date.now() - gameStartTime) / 1000;
+  // Update best time if won
+  if (won && (bestTime === null || totalTime < bestTime)) {
+    bestTime = totalTime;
+    localStorage.setItem('tankBattleBestTime', bestTime);
+  }
   const scr = document.getElementById('game-over-screen');
   scr.style.display = 'flex';
   const title = document.getElementById('go-title');
@@ -503,6 +542,8 @@ function endGame(won) {
     title.className = '';
   }
   document.getElementById('final-score').textContent = score;
+  document.getElementById('final-time').textContent = formatTime(totalTime);
+  document.getElementById('best-time').textContent = bestTime !== null ? formatTime(bestTime) : '--:--';
 }
 
 function nextLevel() {
@@ -672,6 +713,65 @@ function update() {
   for (const p of explosions) { p.x += p.vx; p.y += p.vy; p.life--; }
   explosions = explosions.filter(p => p.life > 0);
 
+  // ---- Heart / healing ----
+  const now = Date.now();
+  if (player && player.alive && lives < 3) {
+    if (!heart) {
+      if (nextHeartTime === 0) nextHeartTime = now + HEART_DELAY;
+      if (now >= nextHeartTime) {
+        // Spawn heart at random empty location
+        let tries = 0;
+        while (tries < 100) {
+          const hc = 1 + Math.floor(Math.random() * (COLS - 2));
+          const hr = 3 + Math.floor(Math.random() * (ROWS - 6));
+          if (grid[hr][hc] === TILE.EMPTY) {
+            // Make sure no tank is there
+            let blocked = false;
+            const hx = hc * CELL + CELL / 2;
+            const hy = hr * CELL + CELL / 2;
+            if (player && player.alive) {
+              const pb = player.bounds();
+              if (hx >= pb.x && hx <= pb.x + pb.w && hy >= pb.y && hy <= pb.y + pb.h) blocked = true;
+            }
+            for (const e of enemies) {
+              if (!e.alive) continue;
+              const eb = e.bounds();
+              if (hx >= eb.x && hx <= eb.x + eb.w && hy >= eb.y && hy <= eb.y + eb.h) { blocked = true; break; }
+            }
+            if (!blocked) {
+              heart = { x: hx, y: hy, spawnTime: now };
+              nextHeartTime = 0;
+              break;
+            }
+          }
+          tries++;
+        }
+      }
+    } else {
+      // Heart exists - check pickup
+      const elapsed = now - heart.spawnTime;
+      if (elapsed >= HEART_DURATION) {
+        // Expired
+        heart = null;
+        nextHeartTime = now + HEART_DELAY;
+      } else {
+        // Check player overlap
+        const pb = player.bounds();
+        const hsize = 10;
+        if (Math.abs(player.cx - heart.x) < hsize + 8 && Math.abs(player.cy - heart.y) < hsize + 8) {
+          // Picked up
+          lives = Math.min(3, lives + 1);
+          heart = null;
+          nextHeartTime = now + HEART_DELAY;
+          updateUI();
+        }
+      }
+    }
+  } else if (lives >= 3) {
+    heart = null;
+    nextHeartTime = 0;
+  }
+
   // ---- Win check ----
   const alive = enemies.filter(e => e.alive).length;
   if (enemiesSpawned >= enemiesTotal && alive <= 0) {
@@ -752,11 +852,37 @@ function drawExplosions() {
   ctx.globalAlpha = 1;
 }
 
+function drawHeart() {
+  if (!heart) return;
+  const now = Date.now();
+  const elapsed = now - heart.spawnTime;
+  const remaining = HEART_DURATION - elapsed;
+  // Flash during last 3 seconds (toggle every 200ms)
+  if (remaining < HEART_FLASH && Math.floor(remaining / 200) % 2 === 0) return;
+  const x = heart.x, y = heart.y;
+  const s = 6;
+  ctx.save();
+  ctx.translate(x, y);
+  // Draw heart shape
+  ctx.fillStyle = '#e33';
+  ctx.beginPath();
+  ctx.moveTo(0, s * 0.6);
+  ctx.bezierCurveTo(-s, -s * 0.4, -s * 0.5, -s * 1.4, 0, -s * 0.8);
+  ctx.bezierCurveTo(s * 0.5, -s * 1.4, s, -s * 0.4, 0, s * 0.6);
+  ctx.fill();
+  // Glow
+  ctx.shadowColor = '#f66';
+  ctx.shadowBlur = 8;
+  ctx.fill();
+  ctx.restore();
+}
+
 function draw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   drawGrid();
   for (const e of enemies) { if (e.alive) e.draw(ctx); }
   if (player && player.alive) player.draw(ctx);
+  drawHeart();
   drawBullets();
   drawExplosions();
 }
