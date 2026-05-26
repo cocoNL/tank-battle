@@ -142,8 +142,9 @@ let explosions = [];
 let score = 0;
 let lives = 3;
 let level = 0;
-let enemiesRemaining = 0;
+let enemiesTotal = 0;
 let enemiesSpawned = 0;
+let enemiesKilled = 0;
 let maxActiveEnemies = 4;
 let gameRunning = false;
 let gamePaused = false;
@@ -409,14 +410,12 @@ function updateUI() {
   document.getElementById('lives').textContent = lives;
   document.getElementById('score').textContent = score;
   document.getElementById('level').textContent = level + 1;
-  const alive = enemies.filter(e => e.alive).length;
-  const remain = enemiesRemaining;
-  document.getElementById('enemies-left').textContent = alive + remain;
+  document.getElementById('enemies-left').textContent = enemiesTotal - enemiesKilled;
 }
 
 // ----- Spawn -----
 function spawnEnemy() {
-  if (enemiesSpawned >= enemiesRemaining) return;
+  if (enemiesSpawned >= enemiesTotal) return;
   const pts = [
     { x: 0 * CELL, y: 0 },
     { x: Math.floor(COLS / 2 - 1) * CELL, y: 0 },
@@ -457,8 +456,9 @@ function loadLevel() {
     }
   }
   player = new Tank(spawnCol * CELL, spawnRow * CELL, DIR.UP, '#4c4', true);
-  enemiesRemaining = LEVELS[Math.min(level, LEVELS.length - 1)].enemies;
+  enemiesTotal = LEVELS[Math.min(level, LEVELS.length - 1)].enemies;
   enemiesSpawned = 0;
+  enemiesKilled = 0;
   spawnTimer = 0;
   maxActiveEnemies = 4;
   showIndicator(LEVELS[Math.min(level, LEVELS.length - 1)].name);
@@ -525,7 +525,7 @@ function update() {
   // ---- Spawn enemies ----
   spawnTimer++;
   const activeCount = enemies.filter(e => e.alive).length;
-  if (spawnTimer >= spawnDelay && activeCount < maxActiveEnemies && enemiesSpawned < enemiesRemaining) {
+  if (spawnTimer >= spawnDelay && activeCount < maxActiveEnemies && enemiesSpawned < enemiesTotal) {
     spawnTimer = 0;
     spawnEnemy();
   }
@@ -634,7 +634,7 @@ function update() {
           e.alive = false;
           spawnExplosion(e.cx, e.cy, true);
           score += 100;
-          enemiesRemaining--;
+          enemiesKilled++;
           updateUI();
           break;
         }
@@ -649,7 +649,7 @@ function update() {
 
   // ---- Win check ----
   const alive = enemies.filter(e => e.alive).length;
-  if (enemiesRemaining <= 0 && alive <= 0) {
+  if (enemiesSpawned >= enemiesTotal && alive <= 0) {
     nextLevel();
     return;
   }
